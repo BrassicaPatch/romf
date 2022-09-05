@@ -1,0 +1,64 @@
+#pragma kernel initSeeds
+#pragma kernel jfaCS
+#pragma kernel floodMap
+
+int mapWidth;
+int mapHeight;
+int step;
+
+StructuredBuffer<int2> seeds;
+StructuredBuffer<float3> colors;
+
+RWTexture2D<float4> Source;
+RWTexture2D<float4> Result;
+
+uint2 BoundIndex(uint2 i){
+	return uint2(clamp(i.x,0,mapWidth),clamp(i.y,0,mapHeight));
+}
+
+void GetMinDistancePoint(float2 curPos,float3 tarInfo,inout float4 minInfo)
+{
+	// z channel is seed ID
+	if(tarInfo.z > 0 ){
+		float distance = dot(curPos - tarInfo.xy,curPos - tarInfo.xy);
+		if(distance < minInfo.w){
+			minInfo = float4( tarInfo, distance);
+		}
+	}
+}
+
+[numthreads(1,1,1)]
+void initSeeds (uint3 id : SV_DispatchThreadID)
+{
+	int2 seedPos = seeds[id.x];
+	uint px = uint(seedPos.x)%mapWidth;
+	uint py = uint(seedPos.y)%mapHeight;
+	Source[uint2(px,py)] = float4(px,py,id.x+1,1);
+}
+
+[numthreads(8,8,1)]
+void jfaCS (uint3 id : SV_DispatchThreadID)
+{
+    // seed position,seed ID and distance with seed
+    float4 minInfo = float4(0,0,0,999999);
+    GetMinDistancePoint(id.xy,Source[id.xy].xyz,minInfo);
+    GetMinDistancePoint(id.xy,Source[BoundIndex(id.xy + uint2(-step,-step))].xyz,minInfo);
+    GetMinDistancePoint(id.xy,Source[BoundIndex(id.xy + uint2(-step,step))].xyz,minInfo);
+    GetMinDistancePoint(id.xy,Source[BoundIndex(id.xy + uint2(-step,0))].xyz,minInfo);
+    GetMinDistancePoint(id.xy,Source[BoundIndex(id.xy + uint2(0,-step))].xyz,minInfo);
+    GetMinDistancePoint(id.xy,Source[BoundIndex(id.xy + uint2(0,step))].xyz,minInfo);
+    GetMinDistancePoint(id.xy,Source[BoundIndex(id.xy + uint2(step,-step))].xyz,minInfo);
+    GetMinDistancePoint(id.xy,Source[BoundIndex(id.xy + uint2(step,0))].xyz,minInfo);
+    GetMinDistancePoint(id.xy,Source[BoundIndex(id.xy + uint2(step,step))].xyz,minInfo);
+    Result[id.xy] = minInfo;
+}
+
+[numthreads(8,8,1)]
+void floodMap (uint3 id : SV_DispatchThreadID)
+{
+    float4 info = Source[id.xy];
+    uint seedID = info.z;
+    int index = id.x + (id.y * mapWidth);
+	Result[id.xy] = float4(colors[max(seedID-1,0)],1);
+}
+
